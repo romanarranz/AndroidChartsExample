@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">AndroidChartsExample</string>
+
+    <!-- Tabs -->
+    <string name="category_static_plot">Static Plot</string>
+    <string name="category_dynamic_plot">Dynamic Plot</string>
+</resources>
