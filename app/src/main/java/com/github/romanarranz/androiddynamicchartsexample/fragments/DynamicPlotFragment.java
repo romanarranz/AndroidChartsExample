@@ -6,6 +6,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.support.v4.app.Fragment;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,7 +22,14 @@ import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.github.romanarranz.androiddynamicchartsexample.R;
+import com.github.romanarranz.androiddynamicchartsexample.helpers.MapBundler;
 import com.github.romanarranz.androiddynamicchartsexample.helpers.MyMarkerView;
+
+import java.util.Map;
+import java.util.TreeMap;
+
+import icepick.Icepick;
+import icepick.State;
 
 /**
  * Created by romanarranzguerrero on 21/8/17.
@@ -30,13 +38,18 @@ import com.github.romanarranz.androiddynamicchartsexample.helpers.MyMarkerView;
 public class DynamicPlotFragment extends Fragment {
 
     public static final String DPF_URI = "DPFURI";
+    private static final String LOG_TAG = DynamicPlotFragment.class.getSimpleName();
 
     private View mRootView;
-    private LineChart mChart;
     private Handler mHandler = new Handler();
     private Typeface mTfLight;
+    private long m5fps = 1000 / 5, mStopTime = 1000 * 25; // parar la hebra a los 25s
 
-    private long m5fps = 1000 / 5, mCurrentTime = 0, mStopTime = 1000 * 25; // parar la hebra a los 25s
+    private LineChart mChart;
+
+    @State(MapBundler.class) Map<Float, Float> mDatasetCosP3PI;
+    @State(MapBundler.class) Map<Float, Float> mDatasetCosL3PI;
+    @State long mCurrentTime;
 
     private Runnable mTickUI = new Runnable() {
         @Override
@@ -65,6 +78,14 @@ public class DynamicPlotFragment extends Fragment {
         mChart = (LineChart) mRootView.findViewById(R.id.chart);
         mTfLight = Typeface.createFromAsset(getContext().getAssets(), "OpenSans-Light.ttf");
 
+        if (savedInstanceState != null) {
+            Icepick.restoreInstanceState(this, savedInstanceState);
+        } else {
+            mDatasetCosL3PI = new TreeMap<>();
+            mDatasetCosP3PI = new TreeMap<>();
+            mCurrentTime = 0;
+        }
+
         // 1. Opciones del grafico
         setupSettings();
 
@@ -77,22 +98,34 @@ public class DynamicPlotFragment extends Fragment {
         // 4. Ejes X e Y
         setupAxis();
 
-        // 5. Datos vacios
-        /*
-        ArrayList<Entry> values = new ArrayList();
-        for (float i = 0f; i<4f; i += 0.25f) {
-            values.add(new Entry(i, (float) Math.sin(i)));
-        }
-
-        LineDataSet sinDataset = new LineDataSet(values, "sin(x)");
-
-        ArrayList<ILineDataSet> dataSets = new ArrayList();
-        dataSets.add(sinDataset);
-
-        // crear el objeto data con todos los datasets
-        LineData data = new LineData(dataSets);*/
+        // 5. Rellenar los datos si se guardaron con el estado y sino poner datos vacios
         LineData data = new LineData();
         mChart.setData(data);
+
+        boolean update = false;
+        if (mDatasetCosL3PI.size() > 0) {
+            update = true;
+            Log.i(LOG_TAG, "tenia cosas el cos(3x-2π");
+            int datasetIndex = 0;
+            addCosL3PiDataset();
+            for (Map.Entry<Float, Float> entry : mDatasetCosL3PI.entrySet()) {
+                Float x = entry.getKey();
+                Float y = entry.getValue();
+                data.addEntry(new Entry(x, y), datasetIndex);
+            }
+        }
+
+        if (mDatasetCosP3PI.size() > 0) {
+            update = true;
+            Log.i(LOG_TAG, "tenia cosas el cos(3x+3π");
+            int datasetIndex = 1;
+            addCosP3PiDataset();
+            for (Map.Entry<Float, Float> entry : mDatasetCosP3PI.entrySet()) {
+                Float x = entry.getKey();
+                Float y = entry.getValue();
+                data.addEntry(new Entry(x, y), datasetIndex);
+            }
+        }
 
         // 6. Animaciones
         mChart.animateX(3000);
@@ -103,10 +136,32 @@ public class DynamicPlotFragment extends Fragment {
         // 8. Pintar
         mChart.invalidate();
 
+        if (update) {
+            updateChart(6);
+        }
+
         // 9. Lanzar la hebra de actualizacion de la UI
         mHandler.post(mTickUI);
 
         return mRootView;
+    }
+
+    /**
+     * Cuando el dispositivo rota guardamos el estado que tenia el fragment para continuar cuando vuelva a iniciarse
+     *
+     * @param outState bundle de salida con los datos guardados
+     */
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (mCurrentTime > 0) {
+            /*
+            Parcelable mapParcel1 = Parcels.wrap(new TreeMap<Float, Float>());
+            Parcelable mapParcel2 = Parcels.wrap(new TreeMap<Float, Float>());
+            outState.putParcelable("cosl3pi_dataset", mapParcelable);
+            */
+            Icepick.saveInstanceState(this, outState);
+        }
     }
 
     /**
@@ -224,41 +279,91 @@ public class DynamicPlotFragment extends Fragment {
     }
 
     /**
-     * Metodo para añadir una nueva de la funcion cos(3x-2π) al grafico
+     * Metodo para añadir el dataset de la funcion cos(3x-2π)
+     */
+    private void addCosL3PiDataset() {
+        LineData data = mChart.getData();
+
+        if (data!= null) {
+            int datasetIndex = 0;
+            ILineDataSet set = data.getDataSetByIndex(datasetIndex);
+
+            if (set == null) {
+                LineDataSet d = new LineDataSet(null, "cos(3x-2π)");
+                d.enableDashedLine(10f, 5f, 0f);
+                d.enableDashedHighlightLine(10f, 5f, 0f);
+                d.setAxisDependency(YAxis.AxisDependency.LEFT);
+                d.setColor(Color.YELLOW);
+                d.setCircleColor(Color.CYAN);
+                d.setHighLightColor(Color.rgb(244, 117, 117));
+                d.setLineWidth(1f);
+                d.setCircleRadius(3f);
+                d.setDrawCircleHole(false);
+                d.setValueTextSize(9f);
+                d.setDrawFilled(true);
+                d.setFormLineWidth(1f);
+                d.setFormLineDashEffect(new DashPathEffect(new float[]{10f, 5f}, 0f));
+                d.setFormSize(15.f);
+                d.setDrawFilled(false);
+                d.setDrawValues(false);
+
+                set = d;
+                data.addDataSet(set);
+            }
+        }
+    }
+
+    /**
+     * Metodo para añadir un nuevo valor a la funcion cos(3x-2π)
      *
      * @param x el nuevo valor
      */
     private void addCosL3PiEntry(float x) {
         LineData data = mChart.getData();
 
-        if (data != null) {
-            int sinDatasetIndex = 0;
-            ILineDataSet set = data.getDataSetByIndex(sinDatasetIndex);
+        if (data!= null) {
+            int datasetIndex = 0;
 
-            if (set == null) {
-                LineDataSet sinDataset = new LineDataSet(null, "cos(3x-2π)");
-                sinDataset.enableDashedLine(10f, 5f, 0f);
-                sinDataset.enableDashedHighlightLine(10f, 5f, 0f);
-                sinDataset.setAxisDependency(YAxis.AxisDependency.LEFT);
-                sinDataset.setColor(Color.YELLOW);
-                sinDataset.setCircleColor(Color.CYAN);
-                sinDataset.setHighLightColor(Color.rgb(244, 117, 117));
-                sinDataset.setLineWidth(1f);
-                sinDataset.setCircleRadius(3f);
-                sinDataset.setDrawCircleHole(false);
-                sinDataset.setValueTextSize(9f);
-                sinDataset.setDrawFilled(true);
-                sinDataset.setFormLineWidth(1f);
-                sinDataset.setFormLineDashEffect(new DashPathEffect(new float[]{10f, 5f}, 0f));
-                sinDataset.setFormSize(15.f);
-                sinDataset.setDrawFilled(false);
-                sinDataset.setDrawValues(false);
-
-                set = sinDataset;
-                data.addDataSet(set);
+            if (data.getDataSetByIndex(datasetIndex) == null) {
+                addCosL3PiDataset();
             }
 
-            data.addEntry(new Entry(x, (float) Math.cos(3*x - 2*Math.PI)), sinDatasetIndex);
+            float y = (float) Math.cos(3*x - 2*Math.PI);
+            mDatasetCosL3PI.put(x, y);
+            data.addEntry(new Entry(x, y), datasetIndex);
+        }
+    }
+
+    /**
+     * Metodo para añadir el dataset de la funcion cos(3x+3π)
+     */
+    private void addCosP3PiDataset() {
+        LineData data = mChart.getData();
+
+        if (data != null) {
+            int datasetIndex = 1;
+            ILineDataSet set = data.getDataSetByIndex(datasetIndex);
+
+            if (set == null) {
+                LineDataSet d = new LineDataSet(null, "cos(3x+3π)");
+                d.setAxisDependency(YAxis.AxisDependency.LEFT);
+                d.setColor(Color.GRAY);
+                d.setCircleColor(Color.MAGENTA);
+                d.setHighLightColor(Color.rgb(244, 117, 117));
+                d.setLineWidth(1f);
+                d.setCircleRadius(3f);
+                d.setDrawCircleHole(false);
+                d.setValueTextSize(9f);
+                d.setDrawFilled(true);
+                d.setFormLineWidth(1f);
+                d.setFormLineDashEffect(new DashPathEffect(new float[]{10f, 5f}, 0f));
+                d.setFormSize(15.f);
+                d.setDrawFilled(false);
+                d.setDrawValues(false);
+
+                set = d;
+                data.addDataSet(set);
+            }
         }
     }
 
@@ -272,30 +377,14 @@ public class DynamicPlotFragment extends Fragment {
 
         if (data != null) {
             int datasetIndex = 1;
-            ILineDataSet set = data.getDataSetByIndex(datasetIndex);
 
-            if (set == null) {
-                LineDataSet dataset = new LineDataSet(null, "cos(3x+3π)");
-                dataset.setAxisDependency(YAxis.AxisDependency.LEFT);
-                dataset.setColor(Color.GRAY);
-                dataset.setCircleColor(Color.MAGENTA);
-                dataset.setHighLightColor(Color.rgb(244, 117, 117));
-                dataset.setLineWidth(1f);
-                dataset.setCircleRadius(3f);
-                dataset.setDrawCircleHole(false);
-                dataset.setValueTextSize(9f);
-                dataset.setDrawFilled(true);
-                dataset.setFormLineWidth(1f);
-                dataset.setFormLineDashEffect(new DashPathEffect(new float[]{10f, 5f}, 0f));
-                dataset.setFormSize(15.f);
-                dataset.setDrawFilled(false);
-                dataset.setDrawValues(false);
-
-                set = dataset;
-                data.addDataSet(set);
+            if (data.getDataSetByIndex(datasetIndex) == null) {
+                addCosP3PiDataset();
             }
 
-            data.addEntry(new Entry(x, (float) Math.cos(3*x + 3*Math.PI)), datasetIndex);
+            float y = (float) Math.cos(3*x + 3*Math.PI);
+            mDatasetCosP3PI.put(x, y);
+            data.addEntry(new Entry(x, y), datasetIndex);
         }
     }
 
